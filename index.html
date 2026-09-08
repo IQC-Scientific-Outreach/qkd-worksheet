@@ -328,10 +328,17 @@
    *    her measurement outcome is genuinely random, and the state she
    *    resends is uncorrelated with Alice's original bit whenever it's later
    *    measured in a *different* basis than the one Eve used.
-   *  - Bob measures in his own random basis. His result is deterministic
-   *    whenever his basis matches whichever state was actually incoming
-   *    (Eve's resent state if she intercepted, otherwise Alice's original);
-   *    otherwise his result is a fresh coin flip.
+   *  - Bob measures in his own random basis. Physically his result is
+   *    deterministic whenever his basis matches whichever state is actually
+   *    incoming; otherwise it's a fresh coin flip. But the worksheet only
+   *    ever shows the student a *derivable* answer: if Eve intercepted with
+   *    the wrong basis, her own result is displayed as "R" (never revealed),
+   *    so nothing about what Bob measures can be worked out from the page
+   *    either — his cell is graded "R" too, even on the rare occasion his
+   *    basis happens to match Eve's. (That case is always discarded during
+   *    reconciliation anyway, since it requires Bob's basis to differ from
+   *    Alice's — see below — so this only affects fairness of the
+   *    worksheet question, never the real key or QBER statistics.)
    *  - Afterwards, Alice and Bob publicly compare (only) their *bases*. Bits
    *    are kept ("sifted") only where the bases match — this is the only
    *    information Eve's presence doesn't corrupt. If Eve guessed the wrong
@@ -357,6 +364,16 @@
     let carrierBasis = aliceBasis, carrierBit = aliceBit, carrierKey = aliceKey;
     let eveBasis = null, eveKey = null, eveCorrectSymbol = null;
 
+    // Whether the carrier's state is something a student could legitimately
+    // derive from the information the worksheet actually shows them. This is
+    // true when there's no Eve, or Eve happened to guess Alice's basis (in
+    // which case her cell is shown as a definite, derivable letter). It is
+    // FALSE whenever Eve intercepted with the wrong basis: her own outcome
+    // is then a genuine coin flip that the worksheet only ever shows as "R"
+    // (never the actual letter) — so nothing downstream of her can be
+    // deterministically derived either, no matter whose basis matches whose.
+    let carrierKnown = true;
+
     if (eveIntercepts){
       eveBasis = randBasis();
       if (eveBasis === aliceBasis){
@@ -368,28 +385,46 @@
         // Eve guessed the wrong basis: her own outcome is a genuine coin
         // flip. The worksheet convention (matching the paper activity) is
         // to mark this cell "Random" rather than asking the student to
-        // predict an inherently unpredictable value.
+        // predict an inherently unpredictable value. Because that value is
+        // never revealed to the student, Bob's outcome becomes equally
+        // undeterminable from here on — see carrierKnown above.
         const eveBit = randBit();
         eveKey = keyFor(eveBasis, eveBit);
         eveCorrectSymbol = 'R';
+        carrierKnown = false;
       }
       // Whatever Eve measured, she resends it — that's now the carrier.
+      // (We still track its real basis/bit/key even when carrierKnown is
+      // false: they're needed to roll a physically realistic — if
+      // unpredictable-to-the-student — outcome for Bob just below.)
       carrierBasis = eveBasis; carrierBit = STATES[eveKey].bit; carrierKey = eveKey;
     }
 
     // ---- Bob: measures the carrier in his own random basis ----
     const bobBasis = randBasis();
+    // Bob's result is only a *derivable* deterministic answer when the
+    // carrier itself is known/derivable AND his basis matches it. If Eve
+    // disturbed the photon with the wrong basis, Bob's result is graded as
+    // "R" unconditionally — even on the rare occasion his basis happens to
+    // match Eve's — because the student was never shown what Eve measured
+    // and so cannot possibly derive Bob's outcome from what's on the page.
+    // (Note: whenever this happens, Bob's basis necessarily differs from
+    // Alice's too, so this photon is always discarded during reconciliation
+    // regardless — this only affects what counts as a *fair worksheet
+    // question*, never the final sifted key or QBER.)
+    const bobDeterministic = carrierKnown && (bobBasis === carrierBasis);
     let bobCorrectSymbol, bobCorrectBit, finalBobBit;
-    if (bobBasis === carrierBasis){
-      // Bob's basis matches whatever is actually arriving -> deterministic.
+    if (bobDeterministic){
+      // Bob's basis matches whatever is actually (and knowably) arriving.
       finalBobBit = carrierBit;
       bobCorrectSymbol = carrierKey;
       bobCorrectBit = String(carrierBit);
     } else {
-      // Basis mismatch relative to the carrier -> genuinely random outcome.
-      // We still roll an actual bit here (rather than leaving it undefined)
-      // because it's needed downstream for realistic key/QBER statistics,
-      // even though the *correct worksheet answer* for this cell is "R".
+      // Either an ordinary basis mismatch, or Eve scrambled the state with
+      // the wrong basis — either way, a genuinely random outcome. We still
+      // roll an actual bit here (rather than leaving it undefined) because
+      // it's needed downstream for realistic key/QBER statistics, even
+      // though the *correct worksheet answer* for this cell is "R".
       finalBobBit = randBit();
       bobCorrectSymbol = 'R';
       bobCorrectBit = 'R';
