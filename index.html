@@ -41,6 +41,7 @@
     --wrong-tint: #f6e2e4;
     --darkred: #7a1020;     /* Final-bit colour: bits agree, but only by luck (Eve disturbed the basis) */
     --brightred: #ee2b2b;   /* Final-bit colour: genuine transmission error (reveals eavesdropping) */
+    --reveal: #e8b400;      /* corner-badge colour for answers filled in via "Reveal Current Photon" */
     --radius: 10px;
     --serif: Georgia, "Times New Roman", serif;
     --sans: Verdana, Geneva, sans-serif;
@@ -200,6 +201,7 @@
   }
   .corner-badge.correct{ background: var(--good); }
   .corner-badge.wrong{ background: var(--wrong); }
+  .corner-badge.revealed{ background: var(--reveal); color: var(--ink); }
 
   /* ---- Final bit row ---- */
   .fb-value{ font:700 17px var(--mono); }
@@ -274,9 +276,9 @@
     </div>
   </div>
 
-  <footer class="note">IN TESTING &mdash; Email any bugs to iqc-outreach@uwaterloo.ca<br>
+  <footer class="note">
     Simulator for the <a href="https://uwaterloo.ca/institute-for-quantum-computing/outreach/quantum-educators/teacher-resources" target="_blank" rel="noopener">Quantum Cryptography</a> lesson plan and activity<br>
-    Published by the Scientific Outreach Team at the <a href="https://uwaterloo.ca/iqc" target="_blank" rel="noopener">Institute for Quantum Computing</a>, University of Waterloo</footer>
+    Developed by the Scientific Outreach Team at the <a href="https://uwaterloo.ca/iqc" target="_blank" rel="noopener">Institute for Quantum Computing</a>, University of Waterloo<br>The development of the user interface relied on artificial intelligence tools. Please report any issues to iqc-outreach@uwaterloo.ca.</footer>
 </div>
 
 <script>
@@ -305,6 +307,13 @@
   };
   const KEY_ORDER = ['H','V','D','A'];
   const BASIS_LABEL = { HV: 'H/V', DA: '\u00B145\u00B0' };
+
+  // Small flat "eye" icon (Feather-icons style) used on the corner badge of
+  // any answer that was auto-filled via "Reveal Current Photon" rather than
+  // answered by the student. Uses stroke="currentColor" so its colour is
+  // set purely via CSS (see .corner-badge.revealed), matching how the
+  // plain-text checkmark/X badges pick up their colour from their class.
+  const EYE_ICON_SVG = '<svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
 
   // --- small random helpers -------------------------------------------------
   function randBit(){ return Math.random() < 0.5 ? 0 : 1; }
@@ -443,7 +452,12 @@
       bobBasis, bobCorrectSymbol, bobCorrectBit, finalBobBit,
       kept, error,
       locked:false,                 // becomes true once every field below is answered correctly
-      ans: { aliceSymbol:null, eveSymbol:null, bobSymbol:null, bobBit:null } // the student's current answers
+      ans: { aliceSymbol:null, eveSymbol:null, bobSymbol:null, bobBit:null }, // the student's current answers
+      // Tracks which of the fields above were filled in by the "Reveal
+      // Current Photon" button rather than answered correctly by the
+      // student themselves — used to swap the green checkmark for a yellow
+      // eye icon on those specific cells (see ansSelect()/revealCurrent()).
+      revealed: { aliceSymbol:false, eveSymbol:false, bobSymbol:false, bobBit:false }
     };
   }
 
@@ -496,13 +510,20 @@
   // "Reveal Current Photon": fills in the correct answer for every field of
   // the open column, which — by construction — immediately satisfies
   // isColumnCorrectComplete() and advances to the next photon via the same
-  // locking path as a manually-completed column.
+  // locking path as a manually-completed column. Any field that wasn't
+  // already correct gets flagged in col.revealed so its corner badge shows
+  // a yellow eye instead of a green checkmark (fields the student had
+  // already gotten right themselves keep their normal checkmark).
   function revealCurrent(){
     const col = state.columns[state.columns.length-1];
-    col.ans.aliceSymbol = col.aliceKey;
-    if (col.eveIntercepts) col.ans.eveSymbol = col.eveCorrectSymbol;
-    col.ans.bobSymbol = col.bobCorrectSymbol;
-    col.ans.bobBit = col.bobCorrectBit;
+    const fill = (field, correctVal) => {
+      if (col.ans[field] !== correctVal) col.revealed[field] = true;
+      col.ans[field] = correctVal;
+    };
+    fill('aliceSymbol', col.aliceKey);
+    if (col.eveIntercepts) fill('eveSymbol', col.eveCorrectSymbol);
+    fill('bobSymbol', col.bobCorrectSymbol);
+    fill('bobBit', col.bobCorrectBit);
     processFrontier();
   }
 
@@ -540,8 +561,12 @@
    *                 false for polarization dropdowns (arrow glyph labels)
    * @param locked   true once this column is fully correct — disables
    *                 further edits but keeps showing the (correct) selection
+   * @param revealed true if this specific field was filled in by the
+   *                 "Reveal Current Photon" button rather than answered by
+   *                 the student — swaps the corner checkmark for a yellow
+   *                 eye icon so revealed answers stay visually distinct
    */
-  function ansSelect(trueIdx, field, options, current, correct, isBit, locked){
+  function ansSelect(trueIdx, field, options, current, correct, isBit, locked, revealed){
     let selClasses = ['ans-select'];
     if (isBit) selClasses.push('bit-select');
     let showOverlay = false;
@@ -574,12 +599,18 @@
       const isCorrect = current === correct;
       html += `<span class="r-overlay ${isCorrect?'correct':'wrong'}">R</span>`;
     }
-    // Small corner checkmark/X badge — shown for any answered field,
-    // correct or not, as an extra at-a-glance grading cue alongside the
-    // dropdown's own colour.
+    // Small corner badge — shown for any answered field. Normally a green
+    // checkmark (correct) or red X (incorrect); but if this field was
+    // auto-filled via "Reveal Current Photon" rather than answered by the
+    // student, show a yellow eye icon instead (it's always "correct" by
+    // construction, so there's no revealed+wrong case to handle).
     if (current){
-      const isCorrect = current === correct;
-      html += `<span class="corner-badge ${isCorrect?'correct':'wrong'}">${isCorrect?'&#10003;':'&#10005;'}</span>`;
+      if (revealed){
+        html += `<span class="corner-badge revealed" title="Revealed">${EYE_ICON_SVG}</span>`;
+      } else {
+        const isCorrect = current === correct;
+        html += `<span class="corner-badge ${isCorrect?'correct':'wrong'}">${isCorrect?'&#10003;':'&#10005;'}</span>`;
+      }
     }
     html += '</div>';
     return html;
@@ -645,7 +676,7 @@
 
     h += '<tr class="row-alice"><td class="row-label">Polarization state</td>';
     visible.forEach(v => {
-      h += `<td class="photon-col">${ansSelect(v.idx,'aliceSymbol',KEY_ORDER,v.col.ans.aliceSymbol,v.col.aliceKey,false,v.col.locked)}</td>`;
+      h += `<td class="photon-col">${ansSelect(v.idx,'aliceSymbol',KEY_ORDER,v.col.ans.aliceSymbol,v.col.aliceKey,false,v.col.locked,v.col.revealed.aliceSymbol)}</td>`;
     });
     h += '</tr>';
 
@@ -665,7 +696,7 @@
         if (!v.col.eveIntercepts){
           h += `<td class="photon-col"><span class="muted-dash">&mdash;</span></td>`;
         } else {
-          h += `<td class="photon-col">${ansSelect(v.idx,'eveSymbol',KEY_ORDER.concat(['R']),v.col.ans.eveSymbol,v.col.eveCorrectSymbol,false,v.col.locked)}</td>`;
+          h += `<td class="photon-col">${ansSelect(v.idx,'eveSymbol',KEY_ORDER.concat(['R']),v.col.ans.eveSymbol,v.col.eveCorrectSymbol,false,v.col.locked,v.col.revealed.eveSymbol)}</td>`;
         }
       });
       h += '</tr>';
@@ -681,13 +712,13 @@
 
     h += '<tr class="row-bob"><td class="row-label">Measured state</td>';
     visible.forEach(v => {
-      h += `<td class="photon-col">${ansSelect(v.idx,'bobSymbol',KEY_ORDER.concat(['R']),v.col.ans.bobSymbol,v.col.bobCorrectSymbol,false,v.col.locked)}</td>`;
+      h += `<td class="photon-col">${ansSelect(v.idx,'bobSymbol',KEY_ORDER.concat(['R']),v.col.ans.bobSymbol,v.col.bobCorrectSymbol,false,v.col.locked,v.col.revealed.bobSymbol)}</td>`;
     });
     h += '</tr>';
 
     h += '<tr class="row-bob"><td class="row-label">Measured bit</td>';
     visible.forEach(v => {
-      h += `<td class="photon-col">${ansSelect(v.idx,'bobBit',['0','1','R'],v.col.ans.bobBit,v.col.bobCorrectBit,true,v.col.locked)}</td>`;
+      h += `<td class="photon-col">${ansSelect(v.idx,'bobBit',['0','1','R'],v.col.ans.bobBit,v.col.bobCorrectBit,true,v.col.locked,v.col.revealed.bobBit)}</td>`;
     });
     h += '</tr>';
 
